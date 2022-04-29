@@ -1,0 +1,50 @@
+---
+title: "Artemisia Table"
+author: "Germán Silva"
+date: "4/29/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(kableExtra)
+library(here)
+library(ggbeeswarm)
+```
+
+```{r}
+bulk_den <- read_csv(here("NCOS_Bulk_Den_Samples.csv")) %>% 
+  drop_na() 
+
+bulk_den_sum <- bulk_den %>% 
+  group_by(Zone) %>% 
+  summarise(mean_bulk = mean(bulk_density_g_cm_3),
+            sd_bulk = sd(bulk_density_g_cm_3),
+            sum = n())
+
+ggplot(bulk_den, aes(x = Zone, y = bulk_density_g_cm_3, color = Zone))+ 
+  geom_beeswarm(aes(fill=Zone), shape= 21, color = "black")+
+  geom_boxplot(aes(fill=Zone),
+               color = "black",
+               alpha=0.45,
+               width = 0.2,
+               outlier.color = NA)+
+   scale_fill_manual(values = c("#DEADA1", "#6d748c"))+
+  ggtitle("Bulk Density Across Zones")+
+  labs(x= "Zone",
+       y = "Bulk Density (g/cm3)")+
+   theme(legend.position = "none",
+      plot.title = element_text(color = "#5b4f41", size = 16, hjust = 0.45),
+        plot.background = element_rect("white"),
+        panel.background = element_rect("#f8f8f8"),
+        panel.grid = element_line(linetype= "longdash", color = "#f0ece1"),
+        axis.text = element_text(color = "#5b4f41", size = 7),
+        axis.title = element_text(color = "#5b4f41"),
+        strip.background = element_rect("white"),
+        axis.line = element_line(color = "#5b4f41"),
+        plot.caption = element_text(size = 9, hjust = -0.1))
+  
+```
+
