@@ -1,0 +1,122 @@
+---
+title: "Data Sci Boot Camp"
+author: "Germán Silva"
+date: "7/13/2022"
+output: html_document
+---
+
+# Overview
+
+Exploring, analysizing, and visualizing *Artemisia* data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE) # shows code in final output, but hides messages and warnings
+
+# Attach necessary libraries
+
+library(tidyverse)
+library(here)
+library(kableExtra)
+library(ggbeeswarm)
+```
+
+
+## Reading and Summarizing the data:
+```{r}
+bulk_den <- read_csv(here("NCOS_Bulk_Den_Samples.csv")) %>%  # reads in the csv so we can work with it in the code
+  drop_na() # drops all rows with an NA
+
+bulk_den_average <- bulk_den %>% #starts new table
+  group_by(Zone, `GPS_point_#`) %>% # tells R to group by these two identifying variables
+  summarize(mean_bulk = mean(bulk_density_g_cm_3)) # returns a table with grouping variables and the stat we requested
+
+bulk_den_sum <- bulk_den_average %>% # calls the averaged data
+  group_by(Zone) %>% #groups by zone only
+  summarize(min = min(mean_bulk), # returns minimum value
+            max = max(mean_bulk), # returns maximum value
+            sd = sd(mean_bulk), # returns group's standard deviation
+            mean = mean(mean_bulk), # returns group's mean
+            sample_size = n()) # returns sample size
+
+kable(bulk_den_sum, # starts the creation of a table with the data from the object called
+      col.names = c("Zone",
+                    "Min. Bulk Density (g/cm^3)",
+                    "Max. Bulk Denisty (g/cm^3)",
+                    "Standard Deviation (g/cm^3)",
+                    "Mean Bulk Density (g/cm^3)",
+                    "Sample Size")) %>%  # renames all the column names to professional looking titles
+  kable_classic(full_width = FALSE) # themes the table
+
+
+```
+
+```{r}
+ggplot(bulk_den_average, aes(x = Zone, y = mean_bulk, color = Zone))+ 
+  geom_beeswarm(aes(fill=Zone), shape= 21, color = "black")+
+  geom_boxplot(aes(fill=Zone),
+               color = "black",
+               alpha=0.45,
+               width = 0.2,
+               outlier.color = NA)+
+   scale_fill_manual(values = c("#DEADA1", "#6d748c"))+
+  ggtitle("Bulk Density Across Zones")+
+  labs(x= "Zone",
+       y = "Bulk Density (g/cm3)")+
+   theme(legend.position = "none",
+      plot.title = element_text(color = "#5b4f41", size = 16, hjust = 0.45),
+        plot.background = element_rect("white"),
+        panel.background = element_rect("#f8f8f8"),
+        panel.grid = element_line(linetype= "longdash", color = "#f0ece1"),
+        axis.text = element_text(color = "#5b4f41", size = 7),
+        axis.title = element_text(color = "#5b4f41"),
+        strip.background = element_rect("white"),
+        axis.line = element_line(color = "#5b4f41"),
+        plot.caption = element_text(size = 9, hjust = -0.1))
+```
+
+
+## Hypothesis testing
+
+Questions:
+
+- Is there a significant difference in mean soil bulk density between the two zones? Is there a significant difference between longest branch length in the two zones?
+- Does the data fit the assumptions of parametric significance testing?
+
+### Exploring the data
+
+Histogram:
+```{r}
+ggplot(data = bulk_den_average, aes(x = mean_bulk))+ # starts creation of graph, aes() refers to aesthetics and decides how things are displayed from the variables
+  geom_histogram()+ # turns graph into a histogram
+  facet_wrap(~Zone) # makes two panels based on Zone grouping
+
+ggplot(bulk_den_average, aes(x = mean_bulk, color = Zone, fill = Zone))+
+  geom_histogram(alpha = 0.5)
+```
+
+
+QQ plot:
+```{r}
+ggplot(bulk_den_average, aes(sample = mean_bulk))+ # starts graph with mean bulk density as the sample/graphing data
+  geom_qq()+ # makes a QQ plot, a exploratory/diagnostic plot
+  facet_wrap(~Zone) # panels by Zone Grouping
+```
+
+### T-test
+
+```{r}
+f1 <- bulk_den_average %>% 
+  filter(Zone == "F1")
+
+f3 <- bulk_den_average %>% 
+  filter(Zone == "F3")
+
+cohen_d <- effsize::cohen.d(f1$mean_bulk, f3$mean_bulk)
+
+cohen_d
+
+t_test <- t.test(f1$mean_bulk, f3$mean_bulk)
+
+t_test
+```
+
