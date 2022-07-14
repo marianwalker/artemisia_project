@@ -7,21 +7,30 @@ output: html_document
 
 # Overview
 
-Exploring, analysizing, and visualizing *Artemisia* data
+Exploring, analyzing, and visualizing *Artemisia* data
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE) # shows code in final output, but hides messages and warnings
 
 # Attach necessary libraries
 
+# significance tests and data exploration
 library(tidyverse)
 library(here)
 library(kableExtra)
 library(ggbeeswarm)
+
+# spatial analysis
+library(sf)
+library(tmap)
+library(gstat)
+library(stars)
 ```
 
 
 ## Reading and Summarizing the data:
+
+## Bulk Density
 ```{r}
 bulk_den <- read_csv(here("NCOS_Bulk_Den_Samples.csv")) %>%  # reads in the csv so we can work with it in the code
   drop_na() # drops all rows with an NA
@@ -50,6 +59,35 @@ kable(bulk_den_sum, # starts the creation of a table with the data from the obje
 
 ```
 
+### Artemisia
+
+```{r}
+art_cal <- read_csv(here("artemisia_transects.csv")) %>% 
+  janitor::clean_names()
+
+art_cal_sum <- art_cal %>% 
+  group_by(zone) %>% #groups by zone only
+  summarize(min = min(longest_branch_cm), # returns minimum value
+            max = max(longest_branch_cm), # returns maximum value
+            sd = sd(longest_branch_cm), # returns group's standard deviation
+            mean = mean(longest_branch_cm), # returns group's mean
+            sample_size = n())
+
+kable(art_cal_sum, # starts the creation of a table with the data from the object called
+      col.names = c("Zone",
+                    "Min. Length (cm)",
+                    "Max. Length (cm)",
+                    "Standard Deviation (cm)",
+                    "Mean Length(cm)",
+                    "Sample Size")) %>%  # renames all the column names to professional looking titles
+  kable_classic(full_width = FALSE) # themes the table
+
+```
+
+
+## Visualizing
+
+### Bulk Density
 ```{r}
 ggplot(bulk_den_average, aes(x = Zone, y = mean_bulk, color = Zone))+ 
   geom_beeswarm(aes(fill=Zone), shape= 21, color = "black")+
@@ -57,21 +95,19 @@ ggplot(bulk_den_average, aes(x = Zone, y = mean_bulk, color = Zone))+
                color = "black",
                alpha=0.45,
                width = 0.2,
-               outlier.color = NA)+
-   scale_fill_manual(values = c("#DEADA1", "#6d748c"))+
-  ggtitle("Bulk Density Across Zones")+
-  labs(x= "Zone",
-       y = "Bulk Density (g/cm3)")+
-   theme(legend.position = "none",
-      plot.title = element_text(color = "#5b4f41", size = 16, hjust = 0.45),
-        plot.background = element_rect("white"),
-        panel.background = element_rect("#f8f8f8"),
-        panel.grid = element_line(linetype= "longdash", color = "#f0ece1"),
-        axis.text = element_text(color = "#5b4f41", size = 7),
-        axis.title = element_text(color = "#5b4f41"),
-        strip.background = element_rect("white"),
-        axis.line = element_line(color = "#5b4f41"),
-        plot.caption = element_text(size = 9, hjust = -0.1))
+               outlier.color = NA)
+```
+
+### Artemisia
+
+```{r}
+ggplot(art_cal, aes(x = zone, y = longest_branch_cm, color = zone))+ 
+  geom_beeswarm(aes(fill=zone), shape= 21, color = "black")+
+  geom_boxplot(aes(fill=zone),
+               color = "black",
+               alpha=0.45,
+               width = 0.2,
+               outlier.color = NA)
 ```
 
 
@@ -83,6 +119,8 @@ Questions:
 - Does the data fit the assumptions of parametric significance testing?
 
 ### Exploring the data
+
+#### Soil Bulk Density
 
 Histogram:
 ```{r}
@@ -100,6 +138,26 @@ QQ plot:
 ggplot(bulk_den_average, aes(sample = mean_bulk))+ # starts graph with mean bulk density as the sample/graphing data
   geom_qq()+ # makes a QQ plot, a exploratory/diagnostic plot
   facet_wrap(~Zone) # panels by Zone Grouping
+```
+
+
+#### Artemisia
+
+Histogram:
+```{r}
+ggplot(data = art_cal, aes(x = longest_branch_cm))+ # starts creation of graph, aes() refers to aesthetics and decides how things are displayed from the variables
+  geom_histogram()+ # turns graph into a histogram
+  facet_wrap(~zone) # makes two panels based on Zone grouping
+
+ggplot(art_cal, aes(x = longest_branch_cm, color = zone, fill = zone))+
+  geom_histogram(alpha = 0.5)
+```
+
+QQ plot:
+```{r}
+ggplot(art_cal, aes(sample = longest_branch_cm))+ # starts graph with mean bulk density as the sample/graphing data
+  geom_qq()+ # makes a QQ plot, a exploratory/diagnostic plot
+  facet_wrap(~zone) # panels by Zone Grouping
 ```
 
 ### T-test
@@ -120,3 +178,119 @@ t_test <- t.test(f1$mean_bulk, f3$mean_bulk)
 t_test
 ```
 
+#### Artemisia
+```{r}
+f1_art <- art_cal %>% 
+  filter(zone == "F1")
+
+f3_art <- art_cal %>% 
+  filter(zone == "F3")
+
+cohen_d_art <- effsize::cohen.d(f1_art$longest_branch_cm, f3_art$longest_branch_cm)
+
+cohen_d_art
+
+t_test_art <- t.test(f1_art$longest_branch_cm, f3_art$longest_branch_cm)
+
+t_test_art
+```
+
+Interpret these results with the group
+
+
+## Spatial Interpolation
+
+### Read shapefiles and set coordinates
+
+```{r}
+soil_sf <- read_sf(here("gis_data", "bulk_density.shp")) %>%
+  janitor::clean_names() %>% 
+  mutate(cid = case_when(
+    cid == 0 ~ "F1",
+    cid == 1 ~ "F3"))
+
+zone_sf <- read_sf(here("gis_data", "zones.shp")) %>% 
+  select(Zone) %>% 
+  filter(Zone == "f1")
+
+art_sf <- read_sf(here("gis_data", "f1_artemisia.shp"))
+
+
+# change coordinate system to match others
+
+zone_sf <- st_transform(zone_sf, st_crs(soil_sf))
+```
+
+### Example Maps
+
+```{r}
+ggplot() +
+  geom_sf(data = zone_sf)+
+  geom_sf(data = art_sf, aes(color = branch_cm))
+```
+
+```{r}
+tmap_mode(mode = "view")
+
+tm_shape(art_sf)+
+  tm_dots()
+```
+
+### Clip data
+
+```{r}
+f1_soil <- soil_sf %>% 
+  st_intersection(zone_sf)
+```
+
+
+### Create a variogram and variogram model
+
+```{r}
+f1_soil_vgm <- gstat::variogram(bulk_den ~ 1,
+                                data = f1_soil)
+
+plot(f1_soil_vgm)
+```
+
+```{r}
+f1_soil_vgm_fit <- fit.variogram(f1_soil_vgm, 
+                                 model = vgm(model = "Exp",
+                                             nugget = 10,
+                                             sill = 10000, 
+                                             range = 0.02))
+
+plot(f1_soil_vgm, f1_soil_vgm_fit)
+```
+
+
+### Interpolation by Kriging
+
+```{r}
+zone_grid <- st_bbox(zone_sf) %>% 
+  st_as_stars() %>% 
+  st_set_crs(st_crs(zone_sf)) %>% 
+  st_crop(zone_sf)
+  
+
+
+f1_soil_krige <- krige(bulk_den ~ 1, 
+                       f1_soil,
+                       zone_grid,
+                       model = f1_soil_vgm_fit)
+plot(f1_soil_krige)
+
+krige_df <- as.data.frame(f1_soil_krige) %>% 
+  st_as_sf(coords = c("x", "y")) %>% 
+  drop_na(var1.pred)
+
+ggplot()+
+  geom_sf(data = krige_df,
+          aes(color = var1.pred)) +
+  scale_color_gradient(low = "blue", high = "yellow")
+```
+
+### Spatial Join
+
+
+### Regression
