@@ -28,19 +28,24 @@ library(stars)
 ```
 
 
-## Reading and Summarizing the data:
+# Reading and Summarizing the data:
 
-## Bulk Density
+## Reading and cleaning data
+
+### Bulk Density
 ```{r}
+# pipe operator: Windows (ctrl+shift+m), MAC (cmd+shift+m)
+
 bulk_den <- read_csv(here("NCOS_Bulk_Den_Samples.csv")) %>%  # reads in the csv so we can work with it in the code
   drop_na() # drops all rows with an NA
 
 bulk_den_average <- bulk_den %>% #starts new table
-  group_by(Zone, `GPS_point_#`) %>% # tells R to group by these two identifying variables
+  janitor::clean_names() %>% 
+  group_by(zone, gps_point_number) %>% # tells R to group by these two identifying variables
   summarize(mean_bulk = mean(bulk_density_g_cm_3)) # returns a table with grouping variables and the stat we requested
 
 bulk_den_sum <- bulk_den_average %>% # calls the averaged data
-  group_by(Zone) %>% #groups by zone only
+  group_by(zone) %>% #groups by zone only
   summarize(min = min(mean_bulk), # returns minimum value
             max = max(mean_bulk), # returns maximum value
             sd = sd(mean_bulk), # returns group's standard deviation
@@ -89,9 +94,9 @@ kable(art_cal_sum, # starts the creation of a table with the data from the objec
 
 ### Bulk Density
 ```{r}
-ggplot(bulk_den_average, aes(x = Zone, y = mean_bulk, color = Zone))+ 
-  geom_beeswarm(aes(fill=Zone), shape= 21, color = "black")+
-  geom_boxplot(aes(fill=Zone),
+ggplot(bulk_den_average, aes(x = zone, y = mean_bulk, color = zone))+ 
+  geom_beeswarm(aes(fill=zone), shape= 21, color = "black")+
+  geom_boxplot(aes(fill=zone),
                color = "black",
                alpha=0.45,
                width = 0.2,
@@ -111,24 +116,24 @@ ggplot(art_cal, aes(x = zone, y = longest_branch_cm, color = zone))+
 ```
 
 
-## Hypothesis testing
+# Hypothesis testing
 
 Questions:
 
 - Is there a significant difference in mean soil bulk density between the two zones? Is there a significant difference between longest branch length in the two zones?
 - Does the data fit the assumptions of parametric significance testing?
 
-### Exploring the data
+## Exploring the data
 
-#### Soil Bulk Density
+### Soil Bulk Density
 
 Histogram:
 ```{r}
 ggplot(data = bulk_den_average, aes(x = mean_bulk))+ # starts creation of graph, aes() refers to aesthetics and decides how things are displayed from the variables
   geom_histogram()+ # turns graph into a histogram
-  facet_wrap(~Zone) # makes two panels based on Zone grouping
+  facet_wrap(~zone) # makes two panels based on Zone grouping
 
-ggplot(bulk_den_average, aes(x = mean_bulk, color = Zone, fill = Zone))+
+ggplot(bulk_den_average, aes(x = mean_bulk, color = zone, fill = zone))+
   geom_histogram(alpha = 0.5)
 ```
 
@@ -137,11 +142,11 @@ QQ plot:
 ```{r}
 ggplot(bulk_den_average, aes(sample = mean_bulk))+ # starts graph with mean bulk density as the sample/graphing data
   geom_qq()+ # makes a QQ plot, a exploratory/diagnostic plot
-  facet_wrap(~Zone) # panels by Zone Grouping
+  facet_wrap(~zone) # panels by Zone Grouping
 ```
 
 
-#### Artemisia
+### Artemisia
 
 Histogram:
 ```{r}
@@ -160,14 +165,16 @@ ggplot(art_cal, aes(sample = longest_branch_cm))+ # starts graph with mean bulk 
   facet_wrap(~zone) # panels by Zone Grouping
 ```
 
-### T-test
+## T-test
+
+### Bulk Density
 
 ```{r}
 f1 <- bulk_den_average %>% 
-  filter(Zone == "F1")
+  filter(zone == "F1")
 
 f3 <- bulk_den_average %>% 
-  filter(Zone == "F3")
+  filter(zone == "F3")
 
 cohen_d <- effsize::cohen.d(f1$mean_bulk, f3$mean_bulk)
 
@@ -178,7 +185,7 @@ t_test <- t.test(f1$mean_bulk, f3$mean_bulk)
 t_test
 ```
 
-#### Artemisia
+### Artemisia
 ```{r}
 f1_art <- art_cal %>% 
   filter(zone == "F1")
@@ -198,9 +205,9 @@ t_test_art
 Interpret these results with the group
 
 
-## Spatial Interpolation
+# Spatial Interpolation
 
-### Read shapefiles and set coordinates
+## Read shapefiles and set coordinates
 
 ```{r}
 soil_sf <- read_sf(here("gis_data", "bulk_density.shp")) %>%
@@ -221,7 +228,7 @@ art_sf <- read_sf(here("gis_data", "f1_artemisia.shp"))
 zone_sf <- st_transform(zone_sf, st_crs(soil_sf))
 ```
 
-### Example Maps
+## Example Maps
 
 ```{r}
 ggplot() +
@@ -236,7 +243,7 @@ tm_shape(art_sf)+
   tm_dots()
 ```
 
-### Clip data
+## Clip data
 
 ```{r}
 f1_soil <- soil_sf %>% 
@@ -244,7 +251,7 @@ f1_soil <- soil_sf %>%
 ```
 
 
-### Create a variogram and variogram model
+## Create a variogram and variogram model
 
 ```{r}
 f1_soil_vgm <- gstat::variogram(bulk_den ~ 1,
@@ -264,7 +271,7 @@ plot(f1_soil_vgm, f1_soil_vgm_fit)
 ```
 
 
-### Interpolation by Kriging
+## Interpolation by Kriging
 
 ```{r}
 zone_grid <- st_bbox(zone_sf) %>% 
@@ -272,7 +279,6 @@ zone_grid <- st_bbox(zone_sf) %>%
   st_set_crs(st_crs(zone_sf)) %>% 
   st_crop(zone_sf)
   
-
 
 f1_soil_krige <- krige(bulk_den ~ 1, 
                        f1_soil,
@@ -282,15 +288,64 @@ plot(f1_soil_krige)
 
 krige_df <- as.data.frame(f1_soil_krige) %>% 
   st_as_sf(coords = c("x", "y")) %>% 
-  drop_na(var1.pred)
+  drop_na(var1.pred) %>% 
+  st_set_crs(st_crs(art_sf))
 
 ggplot()+
   geom_sf(data = krige_df,
           aes(color = var1.pred)) +
-  scale_color_gradient(low = "blue", high = "yellow")
+  scale_color_gradient(low = "blue", high = "yellow")+
+  geom_sf(data = art_sf)
 ```
 
-### Spatial Join
+## Spatial Join
+
+```{r}
+art_soil <-  art_sf %>%
+  st_join(krige_df, st_is_within_distance, dist = .15) %>% 
+  group_by(ID) %>% 
+  summarize(branch_cm = mean(branch_cm),
+            bulk_den = mean(var1.pred))
+
+```
 
 
-### Regression
+# Regression and Pattern Visualization
+
+## Visualization
+
+```{r}
+#visualize data
+ggplot(art_soil, aes(x = bulk_den, y = branch_cm))+
+  geom_point()+
+  geom_smooth(method = "lm")
+```
+
+
+## Linear model
+
+```{r}
+# create
+art_soil_lm <- lm(branch_cm ~ bulk_den, art_soil)
+
+art_soil_lm
+
+# summarize
+art_soil_tidy <- broom::tidy(art_soil_lm)
+
+art_soil_tidy
+
+
+#diagnostics 
+plot(art_soil_lm)
+```
+
+
+## Correlation
+
+```{r}
+art_cor <- cor.test(art_soil$branch_cm, art_soil$bulk_den)
+
+art_cor
+```
+
