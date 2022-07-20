@@ -25,6 +25,7 @@ library(sf)
 library(tmap)
 library(gstat)
 library(stars)
+library(SpatialKDE)
 ```
 
 
@@ -217,10 +218,9 @@ soil_sf <- read_sf(here("gis_data", "bulk_density.shp")) %>%
     cid == 1 ~ "F3"))
 
 zone_sf <- read_sf(here("gis_data", "zones.shp")) %>% 
-  select(Zone) %>% 
-  filter(Zone == "f1")
+  select(Zone)
 
-art_sf <- read_sf(here("gis_data", "f1_artemisia.shp"))
+art_sf <- read_sf(here("gis_data", "all_artemisia_correct.shp"))
 
 
 # change coordinate system to match others
@@ -239,14 +239,19 @@ ggplot() +
 ```{r}
 tmap_mode(mode = "view")
 
-tm_shape(art_sf)+
+tm_shape(zone_sf)+
+  tm_polygons()+
+  tm_shape(art_sf)+
   tm_dots()
 ```
 
 ## Clip data
 
 ```{r}
-f1_soil <- soil_sf %>% 
+soil_clip <- soil_sf %>% 
+  st_intersection(zone_sf)
+
+art_clip <- art_sf %>% 
   st_intersection(zone_sf)
 ```
 
@@ -254,20 +259,20 @@ f1_soil <- soil_sf %>%
 ## Create a variogram and variogram model
 
 ```{r}
-f1_soil_vgm <- gstat::variogram(bulk_den ~ 1,
-                                data = f1_soil)
+soil_vgm <- gstat::variogram(bulk_den ~ 1,
+                                data = soil_clip)
 
-plot(f1_soil_vgm)
+plot(soil_vgm)
 ```
 
 ```{r}
-f1_soil_vgm_fit <- fit.variogram(f1_soil_vgm, 
+soil_vgm_fit <- fit.variogram(soil_vgm, 
                                  model = vgm(model = "Exp",
                                              nugget = 10,
-                                             sill = 10000, 
-                                             range = 0.02))
+                                             sill = 1000, 
+                                             range = 0.01))
 
-plot(f1_soil_vgm, f1_soil_vgm_fit)
+plot(soil_vgm, soil_vgm_fit)
 ```
 
 
@@ -280,30 +285,30 @@ zone_grid <- st_bbox(zone_sf) %>%
   st_crop(zone_sf)
   
 
-f1_soil_krige <- krige(bulk_den ~ 1, 
-                       f1_soil,
+soil_krige <- krige(bulk_den ~ 1, 
+                       soil_clip,
                        zone_grid,
-                       model = f1_soil_vgm_fit)
-plot(f1_soil_krige)
+                       model = soil_vgm_fit)
+plot(soil_krige)
 
-krige_df <- as.data.frame(f1_soil_krige) %>% 
+krige_df <- as.data.frame(soil_krige) %>% 
   st_as_sf(coords = c("x", "y")) %>% 
   drop_na(var1.pred) %>% 
-  st_set_crs(st_crs(art_sf))
+  st_set_crs(st_crs(art_clip))
 
 ggplot()+
   geom_sf(data = krige_df,
           aes(color = var1.pred)) +
   scale_color_gradient(low = "blue", high = "yellow")+
-  geom_sf(data = art_sf)
+  geom_sf(data = art_clip)
 ```
 
 ## Spatial Join
 
 ```{r}
-art_soil <-  art_sf %>%
-  st_join(krige_df, st_is_within_distance, dist = .15) %>% 
-  group_by(ID) %>% 
+art_soil <-  art_clip %>%
+  st_join(krige_df, st_is_within_distance, dist = .5) %>% 
+  group_by(ID, CID) %>% 
   summarize(branch_cm = mean(branch_cm),
             bulk_den = mean(var1.pred))
 
@@ -330,11 +335,7 @@ art_soil_lm <- lm(branch_cm ~ bulk_den, art_soil)
 
 art_soil_lm
 
-# summarize
-art_soil_tidy <- broom::tidy(art_soil_lm)
-
-art_soil_tidy
-
+summary(art_soil_lm)
 
 #diagnostics 
 plot(art_soil_lm)
@@ -347,5 +348,37 @@ plot(art_soil_lm)
 art_cor <- cor.test(art_soil$branch_cm, art_soil$bulk_den)
 
 art_cor
+```
+
+
+## Optional: Kernel Density and Density map
+```{r}
+art_points <- art_soil %>% 
+  st_as_sf(coords = c("x", "y"), dim= "xy") %>% 
+  st_set_crs(st_crs(art_clip)) %>% 
+  st_transform(crs = 26910) %>% 
+  select()
+
+zone_utm <- zone_sf %>% 
+  st_transform(crs = 26910)
+
+cell <- 1
+band <- 1.5
+
+grid_art <- art_points %>% 
+  create_grid_rectangular(cell_size = cell, side_offset = band)
+
+kde <- art_points %>% 
+  kde(band_width = band, kernel = "quartic", grid = grid_art) %>% 
+  st_intersection(zone_utm) %>% 
+  filter(kde_value != 0)
+
+kde_sum <- kde %>% 
+  group_by(Zone) %>% 
+  summarize(mean_den = mean(kde_value))
+
+ggplot(kde, aes(fill= kde_value))+
+  geom_sf()
+  
 ```
 
