@@ -1,0 +1,277 @@
+---
+title: "plot_figures"
+author: "German Silva"
+date: "7/27/2022"
+output: html_document
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Attaching packages 
+
+library(ggthemr)
+
+# significance testings and exploration
+library(tidyverse)
+library(here)
+library(kableExtra)
+library(ggbeeswarm)
+
+# Spatial Analysis
+library(sf)
+library(tmap)
+library(gstat)
+library(stars)
+```
+
+## Soil
+
+```{r}
+bulk <- read_csv(here("NCOS_Bulk_Den_Samples.csv")) %>%  # this line reads in the csv
+  drop_na() 
+
+bulk_avg <- bulk %>% 
+  janitor::clean_names() %>% 
+  group_by(zone, gps_point_number) %>% 
+  summarize(mean_bulk = mean(bulk_density_g_cm_3))
+
+bulk_sum <- bulk_avg %>% 
+  group_by(zone) %>% 
+  summarize(min = min(mean_bulk),
+            max = max(mean_bulk),
+            sd = sd(mean_bulk),
+            mean = mean(mean_bulk),
+            sample_size = n())
+
+kable(bulk_sum,
+      col.names = c("Zone", "Min. Den. (g/cm^3)", "Max. Den. (g/cm^3)", "Standard Dev.", "Mean Den. (g/cm^3)", "Sample Size")) %>% 
+  kable_classic()
+```
+
+## Artemisia
+
+```{r}
+art <- read_csv(here("artemisia_transects.csv")) %>% 
+  janitor::clean_names()
+
+art_sum <- art %>% 
+  group_by(zone) %>% 
+  summarize(min = min(longest_branch_cm),
+            max = max(longest_branch_cm),
+            sd = sd(longest_branch_cm),
+            mean = mean(longest_branch_cm))
+
+kable(art_sum,
+      col.names = c("Zone", "Min. Branch Length (cm)", "Max. Branch Length (cm)", "Standard Dev.", "Mean Branch Length (cm)")) %>% 
+  kable_classic()
+```
+
+```{r}
+ggplot(data = bulk_avg, aes(x = zone, y = mean_bulk, color = zone))+
+  geom_beeswarm(aes(fill=zone), shape= 21, color = "black")+
+  geom_boxplot(aes(fill=zone),
+               color = "black",
+               alpha=0.45,
+               width = 0.2,
+               outlier.color = NA)+
+  labs(x = "Zone",
+       y = "Mean Bulk Density (g/cm^3)",
+       title = "Bulk Density Across Zones")+
+  scale_fill_manual(values = c("wheat", "chartreuse4"))+
+  theme(plot.title = element_text(color = "#5b4f41", size = 16, hjust = 0.5),
+        plot.background = element_rect("white"),
+        panel.background = element_rect("#f8f8f8"),
+        panel.grid = element_line(linetype= "longdash", color = "#f0ece1"),
+        axis.text = element_text(color = "#5b4f41", size = 7, face = "italic"),
+        axis.title = element_text(color = "#5b4f41"),
+        strip.background = element_rect("white"),
+        axis.line = element_line(color = "#5b4f41"),
+        plot.caption = element_text(size = 9, hjust = -0.1),
+        legend.position = "none")
+
+
+# artemisia
+
+ggplot(art, aes(x = zone, y = longest_branch_cm, color = zone))+
+  geom_beeswarm(aes(fill=zone), shape= 21, color = "black")+
+  geom_boxplot(aes(fill=zone),
+               color = "black",
+               alpha=0.45,
+               width = 0.2,
+               outlier.color = NA)+
+  labs(x = "Zone",
+       y = "Longest Branch Length (cm)",
+       title = "Branch Length Across Zones")+
+  scale_fill_manual(values = c("wheat", "chartreuse4"))+
+  theme(plot.title = element_text(color = "#5b4f41", size = 16, hjust = 0.5),
+        plot.background = element_rect("white"),
+        panel.background = element_rect("#f8f8f8"),
+        panel.grid = element_line(linetype= "longdash", color = "#f0ece1"),
+        axis.text = element_text(color = "#5b4f41", size = 7, face = "italic"),
+        axis.title = element_text(color = "#5b4f41"),
+        strip.background = element_rect("white"),
+        axis.line = element_line(color = "#5b4f41"),
+        plot.caption = element_text(size = 9, hjust = -0.1),
+        legend.position = "none")
+```
+
+## T-Test
+
+```{r}
+f1 <- bulk_avg %>% 
+  filter(zone == "F1")
+
+f3 <- bulk_avg %>% 
+  filter(zone == "F3")
+
+bulk_test <- t.test(f1$mean_bulk, f3$mean_bulk)
+
+bulk_test
+
+f1_art <- art %>% 
+  filter(zone == "F1")
+
+f3_art <- art %>% 
+  filter(zone == "F3")
+
+art_test <- t.test(f1_art$longest_branch_cm, f3_art$longest_branch_cm)
+
+art_test
+```
+
+
+## Read in the shapes and set coordinates
+
+```{r}
+soil_sf <- read_sf(here("gis_data", "bulk_density.shp")) %>% 
+  janitor::clean_names() %>% 
+  mutate(cid = case_when(
+    cid == 0 ~ "F1",
+    cid == 1 ~ "F3"
+  ))
+
+zone_sf <- read_sf(here("gis_data", "zones.shp")) %>% 
+  select(Zone)
+
+art_sf <- read_sf(here("gis_data", "all_artemisia_correct.shp"))
+
+# change coordinate reference systems (crs)
+
+zone_sf <- st_transform(zone_sf, st_crs(soil_sf))
+```
+
+
+```{r}
+ggplot()+
+  geom_sf(data = zone_sf)+
+  geom_sf(data = art_sf, aes(color = branch_cm))
+```
+
+## Clip Data
+
+```{r}
+soil_clip <- soil_sf %>% 
+  st_intersection(zone_sf)
+
+art_clip <- art_sf %>% 
+  st_intersection(zone_sf)
+```
+
+# Variogram 
+
+```{r}
+soil_vgm <- gstat::variogram(bulk_den ~ 1,
+                             data = soil_clip)
+
+plot(soil_vgm)
+```
+
+
+```{r}
+soil_vgm_fit <- gstat::fit.variogram(soil_vgm,
+                                     model = vgm(model = "Exp",
+                                                 nugget = 10,
+                                                 sill = 1000,
+                                                 range = 0.01))
+
+plot(soil_vgm, soil_vgm_fit)
+```
+
+# Interpolation by Kriging
+
+```{r}
+zone_grid <- st_bbox(zone_sf) %>% 
+  st_as_stars() %>% 
+  st_set_crs(st_crs(zone_sf)) %>% 
+  st_crop(zone_sf)
+
+soil_krige <- krige(bulk_den ~ 1, 
+                    soil_clip,
+                    zone_grid,
+                    model = soil_vgm_fit)
+
+plot(soil_krige)
+```
+
+```{r}
+krige_df <- as.data.frame(soil_krige) %>% 
+  st_as_sf(coords = c("x", "y")) %>% 
+  drop_na(var1.pred) %>% 
+  st_set_crs(st_crs(art_clip))
+
+ggplot()+
+  geom_sf(data = krige_df,
+          aes(color = var1.pred))+
+  scale_color_gradient(low = "wheat", high = 'chartreuse4')+
+  geom_sf(data = art_clip)
+```
+
+# Spatial Join
+
+```{r}
+art_soil <- art_clip %>% 
+  st_join(krige_df, st_is_within_distance, dist = 0.5) %>% 
+  group_by(ID, CID) %>% 
+  summarise(branch_cm = mean(branch_cm),
+            bulk_den = mean(var1.pred))
+```
+
+# Regression and Pattern Visualization
+
+```{r}
+ggplot(art_soil, aes(x = bulk_den, y = branch_cm))+
+  geom_point(shape= 21, color = "black", fill = "chartreuse4")+
+  geom_smooth(method = "lm", color = "#5b4f41")+
+  labs(x = "Bulk Density (g/cm^3)",
+       y = "Longest Branch Length (cm)",
+       title = "Bulk Density vs Branch Length")+
+  theme(plot.title = element_text(color = "#5b4f41", size = 16, hjust = 0.5),
+        plot.background = element_rect("white"),
+        panel.background = element_rect("#f8f8f8"),
+        panel.grid = element_line(linetype= "longdash", color = "#f0ece1"),
+        axis.text = element_text(color = "#5b4f41", size = 7, face = "italic"),
+        axis.title = element_text(color = "#5b4f41"),
+        strip.background = element_rect("white"),
+        axis.line = element_line(color = "#5b4f41"),
+        plot.caption = element_text(size = 9, hjust = -0.1))
+```
+
+# Linear Model
+
+```{r}
+art_soil_lm <- lm(branch_cm ~ bulk_den, art_soil)
+
+art_soil_lm
+
+summary(art_soil_lm)
+```
+
+# Correlation
+
+```{r}
+art_cor <- cor.test(art_soil$branch_cm, art_soil$bulk_den)
+
+art_cor
+```
+
