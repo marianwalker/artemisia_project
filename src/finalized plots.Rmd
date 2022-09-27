@@ -8,9 +8,7 @@ output: html_document
 ```{r setup, message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-# Attaching packages 
-
-library(ggthemr)
+# Attaching packages
 
 # significance testings and exploration
 library(tidyverse)
@@ -154,7 +152,7 @@ soil_sf <- read_sf(here("gis_data", "bulk_density.shp")) %>%
 zone_sf <- read_sf(here("gis_data", "zones.shp")) %>% 
   select(Zone)
 
-art_sf <- read_sf(here("gis_data", "all_artemisia_correct.shp"))
+art_sf <- read_sf(here("gis_data", "all_artemisia.shp"))
 
 # change coordinate reference systems (crs)
 
@@ -224,7 +222,8 @@ ggplot()+
   geom_sf(data = krige_df,
           aes(color = var1.pred))+
   scale_color_gradient(low = "wheat", high = 'chartreuse4')+
-  geom_sf(data = art_clip)
+  geom_sf(data = art_clip)+
+  geom_sf(data = soil_clip, shape = 4)
 ```
 
 # Spatial Join
@@ -232,7 +231,7 @@ ggplot()+
 ```{r}
 art_soil <- art_clip %>% 
   st_join(krige_df, st_is_within_distance, dist = 0.5) %>% 
-  group_by(ID, CID) %>% 
+  group_by(id, cid) %>% 
   summarise(branch_cm = mean(branch_cm),
             bulk_den = mean(var1.pred))
 ```
