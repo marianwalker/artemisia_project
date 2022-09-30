@@ -231,7 +231,7 @@ ggplot()+
 ```{r}
 art_soil <- art_clip %>% 
   st_join(krige_df, st_is_within_distance, dist = 0.5) %>% 
-  group_by(id, cid) %>% 
+  group_by(id, cid, collection) %>% 
   summarise(branch_cm = mean(branch_cm),
             bulk_den = mean(var1.pred))
 ```
@@ -256,7 +256,69 @@ ggplot(art_soil, aes(x = bulk_den, y = branch_cm))+
         plot.caption = element_text(size = 9, hjust = -0.1))
 ```
 
+```{r}
+art_soil <- art_soil %>% 
+  mutate(zones = case_when(
+    cid == 0 ~ "F1",
+    cid == 1 ~ "F3"
+  ))
+
+ggplot(art_soil, aes(x = bulk_den, y = branch_cm))+
+ geom_point(aes(fill = zones, shape = collection))+
+  scale_shape_manual(values = c(24, 21))+
+  scale_fill_manual(values = c("wheat", "chartreuse4"))+
+  geom_smooth(method = "lm", color = "#5b4f41")+
+  labs(x = "Bulk Density (g/cm^3)",
+       y = "Longest Branch Length (cm)",
+       title = "Bulk Density vs Branch Length")+
+  theme(plot.title = element_text(color = "#5b4f41", size = 16, hjust = 0.5),
+        plot.background = element_rect("white"),
+        panel.background = element_rect("#f8f8f8"),
+        panel.grid = element_line(linetype= "longdash", color = "#f0ece1"),
+        axis.text = element_text(color = "#5b4f41", size = 7, face = "italic"),
+        axis.title = element_text(color = "#5b4f41"),
+        strip.background = element_rect("white"),
+        axis.line = element_line(color = "#5b4f41"),
+        plot.caption = element_text(size = 9, hjust = -0.1))
+
+
+```
+
+```{r}
+ggplot(art_soil, aes(x = bulk_den, y = branch_cm))+
+  geom_point(aes(fill = zones, shape = collection, color = zones))+
+  scale_shape_manual(values = c(24, 21))+
+  scale_fill_manual(values = c("wheat", "chartreuse4"))+
+  scale_color_manual(values = c("black", "black"))+
+  geom_smooth(method = "lm", color = "#5b4f41")+
+  facet_wrap(~zones, scales = "free_x")+
+  labs(x = "Bulk Density (g/cm^3)",
+       y = "Longest Branch Length (cm)",
+       title = "Bulk Density vs Branch Length")+
+  theme(plot.title = element_text(color = "#5b4f41", size = 16, hjust = 0.5),
+        plot.background = element_rect("white"),
+        panel.background = element_rect("#f8f8f8"),
+        panel.grid = element_line(linetype= "longdash", color = "#f0ece1"),
+        axis.text = element_text(color = "#5b4f41", size = 7, face = "italic"),
+        axis.title = element_text(color = "#5b4f41"),
+        strip.background = element_rect("white"),
+        axis.line = element_line(color = "#5b4f41"),
+        plot.caption = element_text(size = 9, hjust = -0.1))
+```
+
+
 # Linear Model
+
+## subset for zones
+```{r}
+f1_art_soil <- art_soil %>% 
+  filter(zones == "F1")
+
+f3_art_soil <- art_soil %>% 
+  filter(zones == "F3")
+```
+
+## Overall Linear model
 
 ```{r}
 art_soil_lm <- lm(branch_cm ~ bulk_den, art_soil)
@@ -265,6 +327,21 @@ art_soil_lm
 
 summary(art_soil_lm)
 ```
+
+## Zone Linear Models
+
+```{r}
+f1_lm <- lm(branch_cm ~ bulk_den, f1_art_soil)
+
+f3_lm <- lm(branch_cm ~ bulk_den, f3_art_soil)
+
+
+summary(f1_lm)
+
+summary(f3_lm)
+
+```
+
 
 # Correlation
 
