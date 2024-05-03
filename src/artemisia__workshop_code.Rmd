@@ -213,9 +213,11 @@ Interpret these results with the group
 ```{r}
 soil_sf <- read_sf(here("gis_data", "bulk_density.shp")) %>%
   janitor::clean_names() %>% 
-  mutate(cid = case_when(
+  mutate(zone = case_when(
     cid == 0 ~ "F1",
-    cid == 1 ~ "F3"))
+    cid == 1 ~ "F3"),
+    zone_sample = objectid) %>% 
+  select(sample_id, zone, zone_sample, bulk_den)
 
 zone_sf <- read_sf(here("gis_data", "zones.shp")) %>% 
   select(Zone)
@@ -310,8 +312,29 @@ art_soil <-  art_clip %>%
   st_join(krige_df, st_is_within_distance, dist = .5) %>% 
   group_by(ID, CID) %>% 
   summarize(branch_cm = mean(branch_cm),
-            bulk_den = mean(var1.pred))
+            bulk_den = mean(var1.pred)) %>% 
+  ungroup()
 
+```
+
+
+## Extract slope and aspect
+
+```{r}
+
+dem <- read_stars(here("gis_data", "dem.tif")) %>% 
+  st_extract(art_soil)
+
+slope <- read_stars(here("gis_data", "slope.tif")) %>% 
+  st_extract(art_soil)
+
+aspect <- read_stars(here("gis_data", "aspect.tif")) %>% 
+  st_extract(art_soil)
+
+art_soil <- art_soil %>% 
+  st_join(y = dem) %>% 
+  st_join(y = slope) %>% 
+  st_join(y = aspect)
 ```
 
 
@@ -327,7 +350,7 @@ ggplot(art_soil, aes(x = bulk_den, y = branch_cm))+
 ```
 
 
-## Linear model
+## Linear model (OLS)
 
 ```{r}
 # create
@@ -340,6 +363,30 @@ summary(art_soil_lm)
 #diagnostics 
 plot(art_soil_lm)
 ```
+
+
+## Multiple Linear Regression
+
+```{r}
+art_mlr <- glm(branch_cm ~ bulk_den + dem.tif + slope.tif + aspect.tif,
+               data = art_soil)
+
+art_mlr
+
+summary(art_mlr)
+
+plot(art_mlr)
+
+```
+
+
+```{r}
+art_plsr <- caret::train(branch_cm ~ bulk_den + dem.tif + slope.tif + aspect.tif,
+                         data = art_soil,
+                         method = "pls",
+                         trControl = trainControl(method = "cv", number = 10))
+```
+
 
 
 ## Correlation
